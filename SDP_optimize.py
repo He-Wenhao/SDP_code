@@ -6,6 +6,8 @@ import warnings
 import scipy
 #warnings.filterwarnings("error")
 
+scale = 1
+
 # data structure for GKP code under amplitude damping problem
 class GKP_ampDamp:
     def __init__(self,gamma,Delta):
@@ -41,18 +43,18 @@ class GKP_ampDamp:
 
                         
         prob = cp.Problem(
-            cp.Maximize(1/8*cp.trace(K@R)),
+            cp.Maximize(1/8*cp.trace(K@R)*scale),
             constraints
         )
 
         
         # optimization---')
-        prob.solve()
+        prob.solve(eps=1e-7)
         #print('---end optimization---')
         # result choi matrix 
         #choi = 1/2*cp.kron(A0,np.identity(2)) + cp.kron(A1, sigma1)+ cp.kron(A2, sigma2)+ cp.kron(A3, sigma3) 
         choi = None
-        return prob.value, choi
+        return prob.value/scale, choi
 
     def transpose_0th(self,i_cut):
         gamma = self.gamma
@@ -91,22 +93,18 @@ class GKP_ampDamp:
         #print(1/8 * np.trace(np.matmul(K,N)))
 
 if __name__ == '__main__':
-    data = []
-    for gamma in np.linspace(0,0.1,11):
-
-        Delta = 0.481
-        n_cut = 40
-        i_cut = 10
-        gkp = GKP_ampDamp(gamma,Delta)
-        res = 1-gkp.optimize_Recovery_numberBasis(n_cut)[0]
-        data.append(res)
-        print(res)
-    print(data)
+    gamma = 0.
+    Delta = 0.481
+    n_cut = 40
+    i_cut = 10
+    gkp = GKP_ampDamp(gamma,Delta)
+    res = 1-gkp.optimize_Recovery_numberBasis(n_cut)[0]
+    print(res)
     
     #gkp.transpose_0th(i_cut)
-    '''
-    0.309 (1)
-    -9.256075101937711e-07
+'''
+0.309 (1)
+-9.256075101937711e-07
 4.181980572948163e-06
 3.896591615193401e-05
 3.553276150192186e-05
