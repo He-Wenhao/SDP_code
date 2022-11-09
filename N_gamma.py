@@ -5,12 +5,119 @@ import numpy as np
 import math
 import mpmath
 from scipy.special import hermite,  eval_genlaguerre
-import scipy
-#from mpmath import factorial
 from functools import lru_cache
 from constants import *
-def factorial(x):
-    return scipy.special.gamma(x+1)
+
+# compute functions related to E_l \ket{\mu} basis
+class GKP_ElmuBasis:
+    def __init__(self,Delta,gamma,m_sum_cutoff,M_sum_cutoff,l_cut):
+        self.gamma = gamma # damping rate gamma for amplitude damping channel
+        self.Delta = Delta
+        self.n_Delta = 1/(exp(2*Delta**2)-1) # approximate average phonon number
+        self.m_sum_cutoff = m_sum_cutoff    # typically 20
+        self.M_sum_cutoff = M_sum_cutoff    # typically 5
+        self.l_cut = l_cut  # typically 20
+
+    # metric of basis \ket{mu}, i.e. describe overlap and norm of GKP |0> |1>
+    def m(self,keep_real = True):
+        cutoff = self.m_sum_cutoff
+        Delta = self.Delta
+        cutoff = 20
+        res = np.zeros((2,2),dtype=complex)
+        for mu1 in [0,1]:
+            for mu2 in [0,1]:
+                for n1 in range(-cutoff,cutoff):
+                    for n2 in range(-cutoff,cutoff):
+                        Lambda = np.sqrt(np.pi/2)*(2*n1+mu1-mu2+1.j*n2)
+                        res[mu1,mu2] += 1/(2*sqrt(np.pi)*(1-np.exp(-2*Delta**2)))* np.exp(1.j*np.pi*(n1+(mu1+mu2)/2)*n2)*np.exp(-1/(2*np.tanh(Delta**2))*abs(Lambda)**2) 
+        # keep only real part
+        if keep_real == True:
+            res = res.real
+        return np.matrix(res)
+
+    # metric of basis E_l \ket{mu}, i.e. describe overlap and norm of GKP E_l|0> E_l|1> , for l = 0,1,2,...
+    # return a 2l_cutoff * 2l_cutoff dimentional matrix
+    def M(self,keep_real = True):
+        sum_cutoff = self.M_sum_cutoff
+        l_cutoff = self.l_cut
+        Delta = self.Delta
+        gamma = self.gamma
+        res = np.zeros((2*l_cutoff,2*l_cutoff),dtype=complex)
+        # element of M matrix
+        def M_ele(cutoff,l,mu,lp,mup):
+            n_D = 1/(exp(2*Delta**2)-1)
+            factor = (gamma*n_D)**((l+lp)/2)/(gamma*n_D+1)**((l+lp)/2+1) / (2*sqrt(pi)*(1-exp(-2*Delta**2)))
+            res = 0
+            t = np.tanh(Delta**2/2)
+            for n1 in range(-cutoff,cutoff):
+                for n2 in range(-cutoff,cutoff):
+                    Lambda = sqrt(pi/2)*(2*n1+mu-mup+n2*1.j)
+                    alpha = exp(Delta**2)/sqrt(gamma+1/n_D)*conj(Lambda)
+                    if l>=lp:
+                        lDl = exp(-abs(alpha)**2/2)*sqrt(factorial(lp)/factorial(l))*eval_genlaguerre(lp,l-lp,abs(alpha)**2)*alpha**(l-lp)
+                    else:
+                        l,lp=lp,l
+                        lDl = exp(-abs(alpha)**2/2)*sqrt(factorial(lp)/factorial(l))*eval_genlaguerre(lp,l-lp,abs(alpha)**2)*alpha**(l-lp)
+                        lDl = lDl.conjugate()
+                        l,lp=lp,l
+                    res += exp(-(1-gamma)/2/(gamma+1/n_D)*abs(Lambda)**2)*exp(1.j*pi*(n1+(mu+mup)/2)*n2)*lDl
+            return (factor*res).real
+        for i in range(2*l_cutoff):
+            for j in range(2*l_cutoff):
+                res[i,j] = M_ele(sum_cutoff, i//2, i%2, j//2, j%2)
+        # keep only real part
+        if keep_real == True:
+            res = res.real
+        return res
+
+    # average photon number(rigorous result)
+    def n_ave(self,sum_cutoff):
+        Delta = self.Delta
+        n_D = self.n_Delta
+        factor = 0.5 / (2*sqrt(pi)*(1-exp(-2*Delta**2)))
+        m0 = np.matrix([[m(Delta,mu,nu) for nu in [0,1]] for mu in [0,1]])
+        cutoff = 20
+        def K(Delta,mu,mup,cutoff):
+            res = 0
+            t2 = np.tanh(Delta**2)
+            s2 = np.sinh(Delta**2)
+            for n1 in range(-sum_cutoff,sum_cutoff):
+                for n2 in range(-sum_cutoff,sum_cutoff):
+                    Lambda = sqrt(pi/2)*(2*n1+mu-mup+n2*1.j)
+                    alpha = exp(Delta**2)/sqrt(gamma+1/n_D)*conj(Lambda)
+                    res += exp(-pi/(2*t2)*abs(Lambda)**2)*exp(1.j*pi*(n1+(mu+mup)/2)*n2)* abs(Lambda)**2 / 4 / s2**2
+            return res
+        K0 = np.matrix([[K(Delta,mu,nu,cutoff) for nu in [0,1]] for mu in [0,1]])
+        return n_D - factor*np.trace(np.linalg.inv(m0)@K0)
+
+    # transform into orthogonalized and normalized GKP basis
+    def orth_M(self):
+        Delta = self.Delta
+        gamma = self.gamma
+        Mmat = self.M()
+        mmat = self.m()
+        u, s, vh = np.linalg.svd(mmat, full_matrices=True)
+        U = np.diag(np.array(s)**(-0.5))@vh
+        U = np.kron(np.eye(dimL), U)
+        Mmat = U@Mmat@U.transpose()
+        #print(U@Mmat@U.transpose())
+        return Mmat
+
+    # compute transpose fidelity with equation 
+    def tranpose_fid(self):
+        Delta = self.Delta
+        gamma = self.gamma
+        dimL = self.l_cut
+        #print('n_Delta',n_Delta(Delta))
+        #print('n_ave',n_ave(Delta))
+        #test_GKPstate_nBasis(Delta)
+        #print('orth_M test',orth_M(Delta, 0, 3,5))
+        Msqrt = scipy.linalg.sqrtm(self.orth_M())
+        ptrMsqrt = Msqrt.reshape([dimL,2,dimL,2])
+        ptrMsqrt = np.matrix([[ptrMsqrt[i,0,j,0]+ptrMsqrt[i,1,j,1] for j in range(dimL)] for i in range(dimL)])
+        fid = 0.25*np.trace(ptrMsqrt@ptrMsqrt.transpose())
+        #print(1-fid)
+        return 1-fid
 
 # metric of basis \ket{mu}
 def m(Delta,mu1,mu2):
@@ -209,8 +316,9 @@ def tranpose_fid(Delta,gamma,dimL,cutoff):
             lpmup = [vec_l_mu(n,lp,mup,Delta,gamma) for n in range(80)]
             print('brute =',np.dot(lmu,lpmup))
     '''
-    
-if __name__ == '__main__':
+
+
+def test_1():
     data=[]
     for gamma in np.linspace(0,0.1,11):
         Delta = 0.481
@@ -221,31 +329,14 @@ if __name__ == '__main__':
         print(res)
     print(data)
 
-    '''
-    0.309
-    -4.3655026366604515e-31j
-(1.469043408364179e-06-2.4492108227927982e-31j)
-(6.827167515544019e-06-2.52612666430367e-31j)
-(2.0652076215710302e-05-3.394304345525873e-31j)
-(4.9890094309668065e-05-2.6286341040351844e-31j)
-(0.00010406770167115109-2.672703781796637e-31j)
-(0.00019533716155106795-2.6999529516651377e-31j)
-(0.0003383881575876879-3.3839667591837584e-31j)
-(0.0005502794177317805-2.7797636620002345e-31j)
-(0.0008502534286682906-2.8186528364252067e-31j)
-(0.0012595910770020202-2.848453771883159e-31j)
 
-0.481
+if __name__ == '__main__':
+    for gamma in np.linspace(0,0.1,11):
+        Delta = 0.481
+        dimL=20
+        cutoff = 5
+        res1 = tranpose_fid(Delta, gamma, dimL, cutoff)
+        print(res1)
+        ElmuBasis = GKP_ElmuBasis(Delta = Delta, gamma = gamma, m_sum_cutoff=20,M_sum_cutoff=5,l_cut=20)
+        print(ElmuBasis.tranpose_fid())
 
-(1.3322676295501878e-15-1.8087116311980755e-19j)
-(0.0007032768163517389-1.9430656486476053e-18j)
-(0.001578879275889955-2.762900891937408e-19j)
-(0.002638626255128451-2.6470842000220957e-19j)
-(0.003894026091168401+1.429265967351255e-18j)
-(0.005356332498326677-1.94806208400381e-18j)
-(0.007036571652055845-3.0248969270292773e-19j)
-(0.008945546653714165-5.535255256174445e-19j)
-(0.011093824705171396-1.8190979266271063e-19j)
-(0.013491711403485374+1.2636226158023207e-18j)
-(0.016149215699938435+1.143643512440785e-16j)
-    '''
