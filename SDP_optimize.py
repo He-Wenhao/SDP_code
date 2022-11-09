@@ -18,7 +18,7 @@ class GKP_ampDamp:
 
     # find an optimized recovery with SDP
     # use phonon number basis
-    def optimize_Recovery_numberBasis(self,n_cut):
+    def optimize_Recovery_numberBasis(self,n_cut,eps):
         # the SDP problem is
         # max_R Tr 1/4 + 1/4 \sum_{i=x,y,z} A_i N_\gamma (\sigma_i)
         # R = 1/2 I_n \otimes I_code + \sum_{i=x,y,z} A_i \otimes \sigma_i >= 0
@@ -49,7 +49,7 @@ class GKP_ampDamp:
 
         
         # optimization---')
-        prob.solve(eps=1e-7)
+        prob.solve(eps=eps)
         #print('---end optimization---')
         # result choi matrix 
         #choi = 1/2*cp.kron(A0,np.identity(2)) + cp.kron(A1, sigma1)+ cp.kron(A2, sigma2)+ cp.kron(A3, sigma3) 
@@ -93,13 +93,18 @@ class GKP_ampDamp:
         #print(1/8 * np.trace(np.matmul(K,N)))
 
 if __name__ == '__main__':
-    gamma = 0.
-    Delta = 0.481
-    n_cut = 40
-    i_cut = 10
-    gkp = GKP_ampDamp(gamma,Delta)
-    res = 1-gkp.optimize_Recovery_numberBasis(n_cut)[0]
-    print(res)
+    for gamma in np.linspace(0.05,0.1,6):
+        Delta = 0.309
+        n_cut = 40
+        i_cut = 10
+        eps = 1e-6
+        gkp = GKP_ampDamp(gamma,Delta)
+        res = 1-gkp.optimize_Recovery_numberBasis(n_cut,eps=eps)[0]
+        nBasis = GKP_nBasis(Delta, gamma, n_cut, sum_cutoff = 5)
+        res2 = 1-nBasis.SDP_optimize_Recovery_numberBasis(eps=eps)[0]
+        print('--- gamma =',gamma)
+        print(res)
+        print(res2)
     
     #gkp.transpose_0th(i_cut)
 '''
