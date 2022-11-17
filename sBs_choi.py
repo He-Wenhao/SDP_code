@@ -9,16 +9,13 @@ warnings.simplefilter('error', UserWarning)
 
 a = qt.destroy
 
-
-class sharpen_trim(GKP_nBasis):
+class sharpen_trim_choi(GKP_nBasis):
     def __init__(self, Delta, gamma, n_cutoff, sum_cutoff,block_cnt):
         super(sharpen_trim, self).__init__(Delta, gamma, n_cutoff, sum_cutoff)
         self.para_cnt = 5    # parameter number in one block
         self.block_cnt = block_cnt
         self.paras = np.zeros(self.block_cnt*self.para_cnt,dtype=float)
-        #self.K = self._reshape(self._K_nbasis().trans()).trans()
-        nBasis = GKP_nBasis(self.Delta, self.gamma, self.n_cutoff, sum_cutoff = 5)    # for computing GKP
-        self.orthBasis = nBasis.get_othNor_basis()
+        self.K = self._reshape(self._K_nbasis().trans()).trans()
 
     def _D(self,alp,type_alp,der = False):
         assert type_alp in ['real','imag']
@@ -54,7 +51,6 @@ class sharpen_trim(GKP_nBasis):
         return qt.tensor(res,qt.qeye(self.n_cutoff))
 
     # unitary for one block
-    # result on H_{ancillia} \otimes H_{code}
     def _block_U(self,para,der_ind):
         assert len(para) == self.para_cnt
         assert (der_ind in range(len(para))) or der_ind == None
@@ -64,43 +60,54 @@ class sharpen_trim(GKP_nBasis):
         #return CD(0,'real')*CD(1,'imag')*R(2,'X')*R(3,'Y')*R(4,'Z')*CD(5,'real')*CD(6,'imag')
         return CD(0,'real')*R(1,'X')*CD(2,'imag')*R(3,'X')*CD(4,'real')
 
-    # amplitude damping channel, with channel purification
-    # result on  H_{code} \otimes H_{env}
-    def _amp_damp(self):
-        theta = np.arcsin(sqrt(self.gamma))
-        a = qt.destroy(self.n_cutoff)
-        b = qt.destroy(self.n_cutoff)
-        iH = 1.j*theta*(qt.tensor(a,b.dag())+qt.tensor(a.dag(),b))
-        return iH.expm()
+    # choi matrix for one block
+    def _block_choi(self,para,der_ind):
+        if der_ind == None:
+            U = self._block_U(para,der_ind)
+            Xeigen = 0.5*qt.Qobj([[1,-1],[-1,1]])    # |+> state
+            ijBasis = lambda i,j:qt.basis(self.n_cutoff,i)*qt.basis(self.n_cutoff,j).dag()
+            channelij = lambda i,j: (U*qt.tensor(Xeigen,ijBasis(i,j))*U.dag()).ptrace(1)
+            return sum([qt.tensor(ijBasis(i,j),channelij(i,j)) for i in range(self.n_cutoff) for j in range(self.n_cutoff)])
+        else:
+            U = self._block_U(para,None)
+            U_der = self._block_choi(para,der_ind)
+            Xeigen = 0.5*qt.Qobj([[1,-1],[-1,1]])    # |+> state
+            ijBasis = lambda i,j:qt.basis(self.n_cutoff,i)*qt.basis(self.n_cutoff,j).dag()
+            channelij = lambda i,j: (U_der*qt.tensor(Xeigen,ijBasis(i,j))*U.dag()).ptrace(1) + (U*qt.tensor(Xeigen,ijBasis(i,j))*U_der.dag()).ptrace(1)
+            return sum([qt.tensor(ijBasis(i,j),channelij(i,j)) for i in range(self.n_cutoff) for j in range(self.n_cutoff)])
 
-    # prepare initial state
-    # H_{puri} is the qubit for purification
-    # result on H_{puri} \otimes H_{ancillia} \otimes H_{code} \otimes H_{env}
-    def _init_state(self):
-        H_puri = [qt.Qobj([[1.],[0.]]),qt.Qobj([[0.],[1.]])]
-        phi_ancillia = 1/sqrt(2)*qt.Qobj([[1.],[1.]])
-        phi_GKP = [qt.Qobj(self.orthBasis[0].transpose()),qt.Qobj(self.orthBasis[1].transpose())]
-        phi_env = qt.basis(self.n_cutoff,0)
-        return 1/sqrt(2)*(qt.tensor(H_puri[0],phi_ancillia,phi_GKP[0],phi_env)+qt.tensor(H_puri[1],phi_ancillia,phi_GKP[1],phi_env))
+    # reshape choi matrix
+    # convert A_{ij,kl} into A_{ik,jl}
+    def _reshape(self,A):
+        b = np.matrix(A)
+        res = b.copy()
+        dims = A.dims
+        iR,jR,kR,lR = dims[0][0],dims[0][1],dims[1][0],dims[1][1]
+        for i in range(iR):
+            for j in range(jR):
+                for k in range(kR):
+                    for l in range(lR):
+                        res[i*jR+j,k*lR+l] = b[i*kR+k,j*lR+l]
+        return qt.Qobj(res,dims = dims)
 
-    
-
-    
+    # obtain k,but with n basis
+    def _K_nbasis(self):
+        K = self._K_forSDP()
+        P = np.matrix(self.get_othNor_basis())
+        P = np.kron(np.eye(self.n_cutoff), P)
+        return qt.Qobj(P.transpose()@K@P,dims = [[self.n_cutoff,self.n_cutoff],[self.n_cutoff,self.n_cutoff]])
 
     # compute fidelity
     def fidelity(self,paras):
         myparas = np.array(paras).reshape((self.block_cnt,self.para_cnt))
-        self.recovers = [self._block_U(myparas[i], None) for i in range(self.block_cnt)]
-        state = self._init_state()
-        Damp = qt.tensor(qt.qeye(2),qt.qeye(2),self._amp_damp())
-        Recover = qt.tensor(qt.qeye(2),reduce(lambda x, y: x*y,self.recovers),qt.qeye(self.n_cutoff))
-        return abs((state.dag()*Recover*Damp*state).tr())**2
+        self.chois = [self._reshape(self._block_choi(myparas[i], None)) for i in range(self.block_cnt)]
+        return reduce(lambda x, y: x*y,self.chois+[self.K]).tr()
 
-    
+    '''
     def optimize(self):
-        res = minimize(lambda x:1-self.fidelity(x),self.paras,options={'disp': True})
+        res = minimize(lambda x:-self.fidelity(x),self.paras,method = 'BFGS')
         print(res)
-    
+    '''
 
 
 if __name__ == '__main__':
@@ -111,7 +118,6 @@ if __name__ == '__main__':
     block_cnt = 1
     epsilon = 0.001
     l = 2*sqrt(pi)
-    st = sharpen_trim(Delta, gamma, n_cutoff, sum_cutoff, block_cnt)
-
-    st.paras = [epsilon,pi/2,-l,-pi/2,epsilon]
-    print(st.optimize())
+    st = sharpen_trim_choi(Delta, gamma, n_cutoff, sum_cutoff, block_cnt)
+    #st.paras = [epsilon,pi/2,-l,-pi/2,epsilon]
+    print(st.fidelity(st.paras))
