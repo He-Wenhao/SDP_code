@@ -99,7 +99,7 @@ class GKP_ElmuBasis:
         mmat = self.m()
         u, s, vh = np.linalg.svd(mmat, full_matrices=True)
         U = np.diag(np.array(s)**(-0.5))@vh
-        U = np.kron(np.eye(dimL), U)
+        U = np.kron(np.eye(self.l_cut), U)
         Mmat = U@Mmat@U.transpose()
         #print(U@Mmat@U.transpose())
         return Mmat
@@ -203,6 +203,18 @@ class GKP_nBasis:
         else:
             raise TypeError('pauli operator type not found')
 
+    # compute a parameter for SDP_optimization
+    def _K_forSDP(self):
+        #compute N_gamma_othNor_pauli(sigma_i)
+        N_gamma_0 = self.N_gamma_othNor_pauli('I').transpose()
+        N_gamma_1 = self.N_gamma_othNor_pauli('X').transpose()
+        N_gamma_2 = self.N_gamma_othNor_pauli('Y').transpose()
+        N_gamma_3 = self.N_gamma_othNor_pauli('Z').transpose()
+        K = np.kron(N_gamma_0, sigma0) + np.kron(N_gamma_1, sigma1) + np.kron(N_gamma_2, sigma2) + np.kron(N_gamma_3, sigma3)
+        K = 1/8*K.real# K should be real]
+        return K
+
+
     # find an optimized recovery with SDP
     # use phonon number basis
     def SDP_optimize_Recovery_numberBasis(self,eps):
@@ -211,13 +223,7 @@ class GKP_nBasis:
         # max_R Tr 1/4 + 1/4 \sum_{i=x,y,z} A_i N_\gamma (\sigma_i)
         # R = 1/2 I_n \otimes I_code + \sum_{i=x,y,z} A_i \otimes \sigma_i >= 0
         #compute N_gamma_othNor_pauli(sigma_i)
-        N_gamma_0 = self.N_gamma_othNor_pauli('I').transpose()
-        N_gamma_1 = self.N_gamma_othNor_pauli('X').transpose()
-        N_gamma_2 = self.N_gamma_othNor_pauli('Y').transpose()
-        N_gamma_3 = self.N_gamma_othNor_pauli('Z').transpose()
-        K = np.kron(N_gamma_0, sigma0) + np.kron(N_gamma_1, sigma1) + np.kron(N_gamma_2, sigma2) + np.kron(N_gamma_3, sigma3)
-        K = K.real# K should be real
-        # A_i s are Hermitian
+
         R = cp.Variable((n_cut*2,n_cut*2), symmetric=True)
 
         # compute partial trace of R
@@ -231,7 +237,7 @@ class GKP_nBasis:
 
         # solve SDP                
         prob = cp.Problem(
-            cp.Maximize(1/8*cp.trace(K@R)),
+            cp.Maximize(cp.trace(self._K_forSDP()@R)),
             constraints
         )
 
@@ -248,7 +254,7 @@ class GKP_nBasis:
 class check_basis:
     def __init__(self,ElmuBasis,nBasis):
         assert type(ElmuBasis) == GKP_ElmuBasis
-        assert type(nBasis) == GKP_nBasis
+        assert type(nBasis) == GKP_nBasis or nBasis == None
         self.Elmu = ElmuBasis
         self.n = nBasis
     def m(self):
@@ -280,6 +286,11 @@ class check_basis:
         minD = min(len(Elmu_M),len(n_M))
         difference = np.linalg.norm(Elmu_M[:minD,:minD]-n_M[:minD,:minD])
         print('---','difference',difference,'---')
+
+    # trace M = 2
+    def trM(self):
+        Elmu_M = self.Elmu.orth_M()
+        print('tr(M)-2 =',Elmu_M.trace()[0,0]-2)
 
     # check m matrix using the theta function expression
     def _m_theta(self,Delta,mu,nu):
@@ -370,14 +381,15 @@ if __name__ == '__main__':
         nBasis = GKP_nBasis(Delta, gamma, n_cut, sum_cutoff = 5)
 
         # check
-        print('check:')
-        ck = check_basis(ElmuBasis = ElmuBasis,nBasis = nBasis)
-        ck.m()
-        ck.m_withTheta()
-        ck.M()
+        if 0:
+            print('check:')
+            ck = check_basis(ElmuBasis = ElmuBasis,nBasis = nBasis)
+            ck.m()
+            ck.m_withTheta()
+            ck.M()
 
         # do optimization
         print('Elmu:',ElmuBasis.tranpose_fid())
         res = 1-nBasis.SDP_optimize_Recovery_numberBasis(eps=eps)[0]
-        print(res)
+        print('SDP',res)
 
