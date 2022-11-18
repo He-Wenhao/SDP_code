@@ -5,6 +5,7 @@ from functools import reduce
 from scipy.optimize import minimize
 import random
 import warnings
+import time
 warnings.simplefilter('error', UserWarning)
 
 a = qt.destroy
@@ -112,6 +113,13 @@ if __name__ == '__main__':
     epsilon = 0.001
     l = 2*sqrt(pi)
     st = sharpen_trim(Delta, gamma, n_cutoff, sum_cutoff, block_cnt)
+    t = time.time()
 
+    st.paras = [epsilon,pi/2,1.,1.,epsilon]
+    print(st.fidelity(st.paras))
+    t1 = time.time()
+    print('time=',t1-t)
     st.paras = [epsilon,pi/2,-l,-pi/2,epsilon]
-    print(st.optimize())
+    print(st.fidelity(st.paras))
+    t2 = time.time()
+    print('time=',t2-t1)

@@ -12,6 +12,7 @@ sqrt = np.sqrt
 pi = np.pi
 exp = np.exp
 conj = np.conj
+ln = np.log
 
 def factorial(x):
     return scipy.special.gamma(x+1)

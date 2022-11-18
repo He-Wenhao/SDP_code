@@ -36,6 +36,16 @@ class GKP_ElmuBasis:
             res = res.real
         return np.matrix(res)
 
+    def _lDl(self,l,lp,alpha):
+        if l>=lp:
+            lDl = exp(-abs(alpha)**2/2)*sqrt(factorial(lp)/factorial(l))*eval_genlaguerre(lp,l-lp,abs(alpha)**2)*alpha**(l-lp)
+        else:
+            l,lp=lp,l
+            lDl = exp(-abs(alpha)**2/2)*sqrt(factorial(lp)/factorial(l))*eval_genlaguerre(lp,l-lp,abs(alpha)**2)*alpha**(l-lp)
+            lDl = lDl.conjugate()
+            l,lp=lp,l
+        return lDl
+
     # metric of basis E_l \ket{mu}, i.e. describe overlap and norm of GKP E_l|0> E_l|1> , for l = 0,1,2,...
     # return a 2l_cutoff * 2l_cutoff dimentional matrix
     def _M(self,keep_real = True):
@@ -54,13 +64,7 @@ class GKP_ElmuBasis:
                 for n2 in range(-cutoff,cutoff):
                     Lambda = sqrt(pi/2)*(2*n1+mu-mup+n2*1.j)
                     alpha = exp(Delta**2)/sqrt(gamma+1/n_D)*conj(Lambda)
-                    if l>=lp:
-                        lDl = exp(-abs(alpha)**2/2)*sqrt(factorial(lp)/factorial(l))*eval_genlaguerre(lp,l-lp,abs(alpha)**2)*alpha**(l-lp)
-                    else:
-                        l,lp=lp,l
-                        lDl = exp(-abs(alpha)**2/2)*sqrt(factorial(lp)/factorial(l))*eval_genlaguerre(lp,l-lp,abs(alpha)**2)*alpha**(l-lp)
-                        lDl = lDl.conjugate()
-                        l,lp=lp,l
+                    lDl = self._lDl(l,lp,alpha)
                     res += exp(-(1-gamma)/2/(gamma+1/n_D)*abs(Lambda)**2)*exp(1.j*pi*(n1+(mu+mup)/2)*n2)*lDl
             return (factor*res).real
         for i in range(2*l_cutoff):
@@ -105,7 +109,7 @@ class GKP_ElmuBasis:
         return Mmat
 
     # compute transpose fidelity with equation 
-    def tranpose_fid(self):
+    def tranpose_infid_M(self):
         Delta = self.Delta
         gamma = self.gamma
         dimL = self.l_cut
@@ -119,6 +123,27 @@ class GKP_ElmuBasis:
         fid = 0.25*np.trace(ptrMsqrt@ptrMsqrt.transpose())
         #print(1-fid)
         return 1-fid
+
+    def transpose_infid_approx(self,approxOrd):
+        assert approxOrd in [0,1,2]
+        Delta = self.Delta
+        gamma = self.gamma
+        t = tanh(Delta**2)
+        n = self.n_Delta
+        firstOrd = 2*exp(-pi/(4*t))*exp(-pi/4*(1-gamma)/(gamma+1/n)*(1+exp(2*Delta**2))) * exp(-gamma*n*exp(Delta**2)*sqrt(pi/2/(gamma+1/n)))
+        A = gamma*n/(1+gamma*n)
+        eps_gamma = 2*sqrt(2)*exp(-pi/4*(1-gamma)/(gamma+1/n))
+        alpha1 = exp(Delta**2)*sqrt(pi/2/(gamma+1/n))
+        secondOrd = 0
+        k_cutt = max(5,5*int(2*ln(2/(gamma*n))/ln(A)))
+        for k in range(0,k_cut):
+            for l in range(0,max(5,5*k)):
+                if k - l != 0 and (k-l)%2 == 0:
+                    secondOrd += A**(2*l+k)/(A**l-A**k)**2*abs(self._lDl(k,l, alpha1))**2
+        secondOrd = eps_gamma**2/(1+gamma*n)*secondOrd
+        result = [firstOrd,secondOrd]
+        return sum(result[0:approxOrd])
+
 
 # compute functions related to Fock state \ket{n} basis
 class GKP_nBasis:
