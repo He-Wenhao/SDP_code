@@ -9,6 +9,10 @@ from functools import lru_cache
 from constants import *
 import cvxpy as cp # https://www.cvxpy.org/examples/basic/sdp.html
 
+# compute n_Delta
+def comp_n_Delta(Delta):
+    return 1/(exp(2*Delta**2)-1)
+
 # compute functions related to E_l \ket{\mu} basis
 class GKP_ElmuBasis:
     def __init__(self,Delta,gamma,m_sum_cutoff,M_sum_cutoff,l_cut):
@@ -109,7 +113,7 @@ class GKP_ElmuBasis:
         return Mmat
 
     # compute transpose fidelity with equation 
-    def tranpose_infid_M(self):
+    def transpose_infid_M(self):
         Delta = self.Delta
         gamma = self.gamma
         dimL = self.l_cut
@@ -135,15 +139,24 @@ class GKP_ElmuBasis:
         eps_gamma = 2*sqrt(2)*exp(-pi/4*(1-gamma)/(gamma+1/n))
         alpha1 = exp(Delta**2)*sqrt(pi/2/(gamma+1/n))
         secondOrd = 0
-        k_cutt = max(5,5*int(2*ln(2/(gamma*n))/ln(A)))
+        k_cut = max(5,5*int(2*ln(2/((gamma+0.001)*n))/ln(A+0.0001)))
         for k in range(0,k_cut):
             for l in range(0,max(5,5*k)):
-                if k - l != 0 and (k-l)%2 == 0:
+                if k - l != 0 and (k-l)%2 == 0 and A != 0.0:
                     secondOrd += A**(2*l+k)/(A**l-A**k)**2*abs(self._lDl(k,l, alpha1))**2
         secondOrd = eps_gamma**2/(1+gamma*n)*secondOrd
         result = [firstOrd,secondOrd]
         return sum(result[0:approxOrd])
 
+    def eps_gamma(self):
+        gamma = self.gamma
+        n = self.n_Delta
+        return 2*sqrt(2)*exp(-pi/4*(1-gamma)/(gamma+1/n))
+
+    def eps_Delta(self):
+        gamma = self.gamma
+        n = self.n_Delta
+        return sqrt(2)*exp(-pi/4/tanh(Delta**2))
 
 # compute functions related to Fock state \ket{n} basis
 class GKP_nBasis:
@@ -394,6 +407,26 @@ class check_basis:
 
 if __name__ == '__main__':
     
+    dimL=20
+    cutoff = 5
+    infid_approx_Ord1_lst = []
+    infid_approx_Ord2_lst = []
+    for gamma in gamma_lst:
+        ElmuBasis = GKP_ElmuBasis(Delta = Delta, gamma = gamma, m_sum_cutoff=20,M_sum_cutoff=5,l_cut=20)
+        # check
+        if 0:
+            ck = check_basis(ElmuBasis = ElmuBasis,nBasis = None)
+            ck.trM()
+        infid_approx_Ord1 = ElmuBasis.transpose_infid_approx(approxOrd=1)
+        infid_approx_Ord1_lst.append(infid_approx_Ord1)
+        infid_approx_Ord2 = ElmuBasis.transpose_infid_approx(approxOrd=2)
+        infid_approx_Ord2_lst.append(infid_approx_Ord2)
+        print(infid_approx_Ord1,infid_approx_Ord2)
+    print('infid_approx_Ord1_lst =',infid_approx_Ord1_lst)
+    print('infid_approx_Ord2_lst =',infid_approx_Ord2_lst)
+
+
+    '''
     for gamma in np.linspace(0,0.1,11):
         print('--- gamma =',gamma)
         Delta = 0.481
@@ -414,7 +447,8 @@ if __name__ == '__main__':
             ck.M()
 
         # do optimization
-        print('Elmu:',ElmuBasis.tranpose_fid())
+        print('Elmu:',ElmuBasis.transpose_fid())
         res = 1-nBasis.SDP_optimize_Recovery_numberBasis(eps=eps)[0]
         print('SDP',res)
+    '''
 
