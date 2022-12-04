@@ -9,9 +9,7 @@ from functools import lru_cache
 from constants import *
 import cvxpy as cp # https://www.cvxpy.org/examples/basic/sdp.html
 
-# compute n_Delta
-def comp_n_Delta(Delta):
-    return 1/(exp(2*Delta**2)-1)
+
 
 # compute functions related to E_l \ket{\mu} basis
 class GKP_ElmuBasis:
@@ -41,14 +39,7 @@ class GKP_ElmuBasis:
         return np.matrix(res)
 
     def _lDl(self,l,lp,alpha):
-        if l>=lp:
-            lDl = exp(-abs(alpha)**2/2)*sqrt(factorial(lp)/factorial(l))*eval_genlaguerre(lp,l-lp,abs(alpha)**2)*alpha**(l-lp)
-        else:
-            l,lp=lp,l
-            lDl = exp(-abs(alpha)**2/2)*sqrt(factorial(lp)/factorial(l))*eval_genlaguerre(lp,l-lp,abs(alpha)**2)*alpha**(l-lp)
-            lDl = lDl.conjugate()
-            l,lp=lp,l
-        return lDl
+        return lDl(l,lp,alpha)
 
     # metric of basis E_l \ket{mu}, i.e. describe overlap and norm of GKP E_l|0> E_l|1> , for l = 0,1,2,...
     # return a 2l_cutoff * 2l_cutoff dimentional matrix
