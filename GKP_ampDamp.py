@@ -398,26 +398,6 @@ class check_basis:
 
 if __name__ == '__main__':
     
-    dimL=20
-    cutoff = 5
-    infid_approx_Ord1_lst = []
-    infid_approx_Ord2_lst = []
-    for gamma in gamma_lst:
-        ElmuBasis = GKP_ElmuBasis(Delta = Delta, gamma = gamma, m_sum_cutoff=20,M_sum_cutoff=5,l_cut=20)
-        # check
-        if 0:
-            ck = check_basis(ElmuBasis = ElmuBasis,nBasis = None)
-            ck.trM()
-        infid_approx_Ord1 = ElmuBasis.transpose_infid_approx(approxOrd=1)
-        infid_approx_Ord1_lst.append(infid_approx_Ord1)
-        infid_approx_Ord2 = ElmuBasis.transpose_infid_approx(approxOrd=2)
-        infid_approx_Ord2_lst.append(infid_approx_Ord2)
-        print(infid_approx_Ord1,infid_approx_Ord2)
-    print('infid_approx_Ord1_lst =',infid_approx_Ord1_lst)
-    print('infid_approx_Ord2_lst =',infid_approx_Ord2_lst)
-
-
-    '''
     for gamma in np.linspace(0,0.1,11):
         print('--- gamma =',gamma)
         Delta = 0.481
@@ -438,8 +418,8 @@ if __name__ == '__main__':
             ck.M()
 
         # do optimization
-        print('Elmu:',ElmuBasis.transpose_fid())
+        print('Elmu:',ElmuBasis.transpose_infid_M())
         res = 1-nBasis.SDP_optimize_Recovery_numberBasis(eps=eps)[0]
         print('SDP',res)
-    '''
+    
 
