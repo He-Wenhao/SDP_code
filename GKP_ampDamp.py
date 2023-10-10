@@ -187,7 +187,59 @@ class process_QECmat:
         # result choi matrix 
         #choi = 1/2*cp.kron(A0,np.identity(2)) + cp.kron(A1, sigma1)+ cp.kron(A2, sigma2)+ cp.kron(A3, sigma3) 
         choi = None
-        return prob.value, choi
+        return prob.value, choi, prob._solver_stats.num_iters
+    
+    
+    # find an optimized recovery with SDP
+    # use phonon number basis
+    def SDP_new_new(self,eps,verbose = False):
+        dimL = self.dimL
+        d = self.d
+        # the SDP problem is
+        # max_R Tr 1/4 + 1/4 \sum_{i=x,y,z} A_i N_\gamma (\sigma_i)
+        # R = 1/2 I_n \otimes I_code + \sum_{i=x,y,z} A_i \otimes \sigma_i >= 0
+        #compute N_gamma_othNor_pauli(sigma_i)
+
+        R = cp.Variable((dimL*d*d,dimL*d*d), symmetric=True)
+
+        # compute partial trace of R
+        constraints = [R >> 0]
+        identMat = np.eye(dimL*d)
+        for i1 in range(dimL):
+            for j1 in range(dimL):
+                for mu1 in range(d):
+                    for nu1 in range(d):
+                        cons = np.zeros([dimL*d*d,dimL*d*d])
+                        for k in range(self.d):
+                            cons[i1*d*d+mu1*d+k,j1*d*d+nu1*d+k] = 1
+                        constraints += [cp.trace(cp.transpose(cons)@R)==identMat[i1*d+mu1,j1*d+nu1]]
+        _Msqrt = np.matrix(scipy.linalg.sqrtm(self.QECmat))
+        Msqrt = np.matrix(np.zeros([dimL*d*d,dimL*d*d]))
+        for i in range(dimL*d):
+            for j in range(dimL*d):
+                for mu in range(d):
+                    Msqrt[i*d+mu,j*d+mu] = _Msqrt[i,j]
+        
+        matK = np.matrix(np.zeros([dimL*d*d,dimL*d*d]))
+        for i in range(dimL):
+            for mu in range(d):
+                for mup in range(d):
+                    matK[i*d*d+mu*d+mu,i*d*d+mup*d+mup] = 1
+        # solve SDP
+        matK = Msqrt * matK * Msqrt                
+        prob = cp.Problem(
+            (1/d**2)*cp.Maximize(cp.trace(cp.transpose(matK)@R)),
+            constraints
+        )
+
+        
+        # optimization---')
+        prob.solve(eps=eps,verbose = verbose)
+        #print('---end optimization---')
+        # result choi matrix 
+        #choi = 1/2*cp.kron(A0,np.identity(2)) + cp.kron(A1, sigma1)+ cp.kron(A2, sigma2)+ cp.kron(A3, sigma3) 
+        choi = None
+        return prob.value, choi, prob._solver_stats.num_iters
 
 # compute functions related to E_l \ket{\mu} basis
 class GKP_ElmuBasis:
@@ -297,6 +349,8 @@ class GKP_ElmuBasis:
         #print(1-fid)
         return 1-fid
 
+
+
     def transpose_infid_approx(self,approxOrd):
         assert approxOrd in [0,1,2]
         Delta = self.Delta
@@ -335,12 +389,22 @@ class GKP_nBasis:
         self.n_Delta = 1/(exp(2*Delta**2)-1) # approximate average phonon number
         self.n_cutoff = n_cutoff
         self.sum_cutoff = sum_cutoff # typically 5
+        self.variable = None
+        self.prob = None
+        self.parameter = None
+        self.constraints = None
+        self.ini_flag = 1
+    def set_para(self,Delta,gamma,n_cutoff,sum_cutoff ):
+        self.gamma = gamma # damping rate gamma for amplitude damping channel
+        self.Delta = Delta
+        self.n_Delta = 1/(exp(2*Delta**2)-1) # approximate average phonon number
+        self.n_cutoff = n_cutoff
+        self.sum_cutoff = sum_cutoff # typically 5
 
     # overlap between GKP state \ket{mu} and \ket{n}
     @lru_cache(1000)
-    def _mu_n(self,mu,n):
+    def _mu_n(self,mu,n,Delta):
         # result = exp(-Delta**2 * n) \sum_k \psi^*_n (2 pi**0.5 (k+mu/2)) where \psi_n is the n-th eigen state of harmonic ocillator
-        Delta = self.Delta
         def psi(n,x): # normalization factor
             N = 1./np.sqrt(np.sqrt(np.pi))*1/np.sqrt(np.exp2(n))*1/np.sqrt(factorial(n))
             Hr=hermite(n)
@@ -352,7 +416,7 @@ class GKP_nBasis:
     # GKP state \ket{mu} on n basis
     def _GKPstate(self,mu):
         assert mu in [0,1]
-        return np.array([self._mu_n(mu,n) for n in range(self.n_cutoff)])
+        return np.array([self._mu_n(mu,n,self.Delta) for n in range(self.n_cutoff)])
 
     # orthogonalize and normalize GKP states on n basis
     def get_othNor_basis(self):
@@ -370,11 +434,9 @@ class GKP_nBasis:
 
     # compute element \bra{n} E_l \ket{\mu} with finite energy(\Delta)
     @lru_cache(1000)
-    def _Elmu_ele(self,n,l,mu):
+    def _Elmu_ele(self,n,l,mu,Delta,gamma):
         assert mu in [0,1]
         basis = self.get_othNor_basis()
-        gamma = self.gamma
-        Delta = self.Delta
         if n+l >= self.n_cutoff:
             return 0
         else:
@@ -382,7 +444,7 @@ class GKP_nBasis:
 
     # compute E_l \ket{mu}
     def Elmu(self,l,mu):
-        return np.array([self._Elmu_ele(n,l,mu) for n in range(self.n_cutoff)])
+        return np.array([self._Elmu_ele(n,l,mu,self.Delta,self.gamma) for n in range(self.n_cutoff)])
 
     # compute N_\gamma(\ket{\mu}\ket{\nu}) , output a n_cut dimensional matrix
     # n_cut is a cut off for phonon number
@@ -393,7 +455,7 @@ class GKP_nBasis:
         for i in range(n_cut):
             for j in range(n_cut):
                 l_range = n_cut - max(i,j)
-                result[i,j] = sum([self._Elmu_ele(i,l,mu)*self._Elmu_ele(j,l,nu)*(factor **l) for l in range(l_range)])
+                result[i,j] = sum([self._Elmu_ele(i,l,mu,self.Delta,self.gamma)*self._Elmu_ele(j,l,nu,self.Delta,self.gamma)*(factor **l) for l in range(l_range)])
         return result
 
     # use Pauli operator as input
@@ -424,38 +486,47 @@ class GKP_nBasis:
 
     # find an optimized recovery with SDP
     # use phonon number basis
-    def SDP_optimize_Recovery_numberBasis(self,eps,verbose = False):
+    def SDP_optimize_Recovery_numberBasis(self,eps,verbose = False,warm_start = False):
         n_cut = self.n_cutoff
         # the SDP problem is
         # max_R Tr 1/4 + 1/4 \sum_{i=x,y,z} A_i N_\gamma (\sigma_i)
         # R = 1/2 I_n \otimes I_code + \sum_{i=x,y,z} A_i \otimes \sigma_i >= 0
         #compute N_gamma_othNor_pauli(sigma_i)
-
-        R = cp.Variable((n_cut*2,n_cut*2), symmetric=True)
-
-        # compute partial trace of R
-        constraints = [R >> 0]
-        for i1 in range(n_cut):
-            for j1 in range(n_cut):
-                cons = np.zeros([n_cut*2,n_cut*2])
-                for k in range(2):
-                    cons[i1*2+k,j1*2+k] = 1
-                constraints += [cp.trace(cons@R)==np.eye(n_cut)[i1,j1]]
-
-        # solve SDP                
-        prob = cp.Problem(
-            cp.Maximize(cp.trace(self._K_forSDP()@R)),
-            constraints
-        )
+        if self.ini_flag == 1:
+            self.ini_flag = 0
+            self.variable = cp.Variable((n_cut*2,n_cut*2), symmetric=True)
+            # compute partial trace of R
+            self.constraints = [self.variable >> 0]
+            for i1 in range(n_cut):
+                for j1 in range(n_cut):
+                    cons = np.zeros([n_cut*2,n_cut*2])
+                    for k in range(2):
+                        cons[i1*2+k,j1*2+k] = 1
+                    self.constraints += [cp.trace(cons@self.variable)==np.eye(n_cut)[i1,j1]]
+            #self.parameter = cp.Parameter((n_cut*2,n_cut*2))
+            # solve SDP                
+            self.problem = cp.Problem(
+                cp.Maximize(cp.trace(self._K_forSDP()@self.variable)),
+                self.constraints
+            )
+        else:
+            prob2 = cp.Problem(
+                cp.Maximize(cp.trace(self._K_forSDP()@self.variable)),
+                self.constraints
+            )
+            #prob2.variables()[0].save_value(self.problem.value)
+            #prob2._value = prob2.objective.value
+            self.problem = prob2
+        #self.parameter.value = self._K_forSDP()
 
         
         # optimization---')
-        prob.solve(eps=eps,verbose = verbose)
+        self.problem.solve(eps=eps,verbose = verbose, warm_start = warm_start)
         #print('---end optimization---')
         # result choi matrix 
         #choi = 1/2*cp.kron(A0,np.identity(2)) + cp.kron(A1, sigma1)+ cp.kron(A2, sigma2)+ cp.kron(A3, sigma3) 
         choi = None
-        return prob.value, choi
+        return self.problem.value, choi, self.problem._solver_stats.num_iters
 
 
 # a function for debug
@@ -576,8 +647,8 @@ class check_basis:
 
 
 
-if __name__ == '__main__':
-    
+
+def test0():
     for gamma in np.linspace(0,0.1,11):
         print('--- gamma =',gamma)
         Delta = 0.481
@@ -609,10 +680,53 @@ if __name__ == '__main__':
 
         # do optimization
         print('Elmu:',ElmuBasis.transpose_infid_M())
-        res = 1-nBasis.SDP_optimize_Recovery_numberBasis(eps=eps)[0]
-        print('SDP',res)
+        res = nBasis.SDP_optimize_Recovery_numberBasis(eps=eps)
+        print('SDP:',1-res[0],'iter:',res[2])
         new_transpose = GKP_QECprocess.transpose_infid_M()
         print('new_transpose:',new_transpose)
-        new_SDP = GKP_QECprocess.SDP_new(eps = eps)[0]
-        print('new SDP:',1-new_SDP)
+        new_SDP = GKP_QECprocess.SDP_new(eps = eps)
+        print('new SDP:',1-new_SDP[0],'iter:',new_SDP[2])
+        new_new_SDP = GKP_QECprocess.SDP_new_new(eps = eps)
+        print('new new SDP:',1-new_new_SDP[0],'iter:',new_new_SDP[2])
 
+
+
+
+
+
+def test1(warmstart):
+    nBasis = GKP_nBasis(1, 1, 1, sum_cutoff = 5)
+    for gamma in np.linspace(0,0.1,11):
+        print('--- gamma =',gamma)
+        Delta = 0.481
+        dimL=20
+        cutoff = 5
+        l_cut = 20
+        m_sum_cutoff=20
+        M_sum_cutoff=5
+        ElmuBasis = GKP_ElmuBasis(Delta = Delta, gamma = gamma, m_sum_cutoff=m_sum_cutoff,M_sum_cutoff=M_sum_cutoff,l_cut=l_cut)
+        n_cut = 40
+        i_cut = 10
+        eps = 1e-6
+        nBasis.set_para(Delta, gamma, n_cut, sum_cutoff = 5)
+        #nBasis = GKP_nBasis(Delta, gamma, n_cut, sum_cutoff = 5)
+ 
+        # check
+        if 0:
+            print('check:')
+            ck = check_basis(ElmuBasis = ElmuBasis,nBasis = nBasis)
+            ck.m()
+            ck.m_withTheta()
+            ck.M()
+            
+
+        # do optimization
+        res = nBasis.SDP_optimize_Recovery_numberBasis(eps=eps,verbose = False,warm_start=warmstart)
+        print('SDP:',1-res[0],'iter:',res[2])
+
+
+
+
+
+if __name__ == '__main__':
+    test0()
