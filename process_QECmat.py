@@ -17,15 +17,10 @@ class process_QECmat:
     # compute transpose fidelity with equation 
     def transpose_infid_M(self):
         dimL = self.dimL
-        #print('n_Delta',n_Delta(Delta))
-        #print('n_ave',n_ave(Delta))
-        #test_GKPstate_nBasis(Delta)
-        #print('orth_M test',orth_M(Delta, 0, 3,5))
         Msqrt = scipy.linalg.sqrtm(self.QECmat)
         ptrMsqrt = Msqrt.reshape([dimL,2,dimL,2])
         ptrMsqrt = np.matrix([[ptrMsqrt[i,0,j,0]+ptrMsqrt[i,1,j,1] for j in range(dimL)] for i in range(dimL)])
         fid = (1/self.d**2)*np.trace(ptrMsqrt@ptrMsqrt.transpose())
-        #print(1-fid)
         return 1-fid
 
     def tranpose_choi(self):
@@ -76,7 +71,7 @@ class process_QECmat:
                     matK[mu*dimL*d+i*d+mu,mup*dimL*d+i*d+mup] = 1
                     
         # solve SDP
-        matK = Msqrt * matK * Msqrt                
+        matK = Msqrt.dot(matK).dot(Msqrt)                
         prob = cp.Problem(
             (1/d**2)*cp.Maximize(cp.trace(cp.transpose(matK)@R)),
             constraints
