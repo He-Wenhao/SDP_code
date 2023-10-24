@@ -1,9 +1,8 @@
 # SDP_code
 
 In this repository, we implement SDP for optimal recovery. We consider entanglement fidelity
-\begin{align}
-F_{\mathcal{N}_\gamma, \mathcal{R}}=\left\langle\Psi\left|\left(\mathcal{R} \circ \mathcal{N}_\gamma\right) \otimes \mathcal{I}(|\Psi\rangle\langle\Psi|)\right| \Psi\right\rangle.
-\end{align}
+
+$$F_{\mathcal{N}_\gamma, \mathcal{R}}=\left\langle\Psi\left|\left(\mathcal{R} \circ \mathcal{N}_\gamma\right) \otimes \mathcal{I}(|\Psi\rangle\langle\Psi|)\right| \Psi\right\rangle.$$
 
 SDP gives the optimal recodery
 \begin{align}
